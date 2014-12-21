@@ -16,6 +16,7 @@
 
 package com.android.dialer.calllog;
 
+import android.accounts.Account;
 import android.content.ContentValues;
 import android.content.Context;
 import android.content.Intent;
@@ -28,6 +29,7 @@ import android.os.Message;
 import android.provider.CallLog.Calls;
 import android.provider.ContactsContract.PhoneLookup;
 import android.telecom.PhoneAccountHandle;
+import android.telephony.SubscriptionManager;
 import android.text.TextUtils;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -648,6 +650,12 @@ public class CallLogAdapter extends GroupingListAdapter
         final long rowId = c.getLong(CallLogQuery.ID);
         views.rowId = rowId;
 
+        String accId = c.getString(CallLogQuery.ACCOUNT_ID);
+        long subId = SubscriptionManager.DEFAULT_SUB_ID;
+        if (accId!= null && !accId.equals("E") && !accId.toLowerCase().contains("sip")) {
+             subId = Long.parseLong(accId);
+        }
+
         // For entries in the call log, check if the day group has changed and display a header
         // if necessary.
         if (mIsCallLog) {
@@ -677,7 +685,7 @@ public class CallLogAdapter extends GroupingListAdapter
         final ContactInfo cachedContactInfo = getContactInfoFromCallLog(c);
 
         final boolean isVoicemailNumber =
-                PhoneNumberUtilsWrapper.INSTANCE.isVoicemailNumber(number);
+                PhoneNumberUtilsWrapper.INSTANCE.isVoicemailNumber(subId, number);
 
         // Where binding and not in the call log, use default behaviour of invoking a call when
         // tapping the primary view.
@@ -756,6 +764,9 @@ public class CallLogAdapter extends GroupingListAdapter
         }
 
         final PhoneCallDetails details;
+        final String accountName = info.accountName;
+        final String accountType = info.accountType;
+        Account contactAccount;
 
         views.reported = info.isBadData;
 
@@ -771,12 +782,12 @@ public class CallLogAdapter extends GroupingListAdapter
         if (TextUtils.isEmpty(name)) {
             details = new PhoneCallDetails(number, numberPresentation,
                     formattedNumber, countryIso, geocode, callTypes, date,
-                    duration, null, accountIcon, features, dataUsage, transcription);
+                    duration, null, accountIcon, features, dataUsage, transcription, subId);
         } else {
             details = new PhoneCallDetails(number, numberPresentation,
                     formattedNumber, countryIso, geocode, callTypes, date,
                     duration, name, ntype, label, lookupUri, photoUri, sourceType,
-                    null, accountIcon, features, dataUsage, transcription);
+                    null, accountIcon, features, dataUsage, transcription, subId);
         }
 
         mCallLogViewsHelper.setPhoneCallDetails(mContext, views, details);
@@ -794,16 +805,24 @@ public class CallLogAdapter extends GroupingListAdapter
 
         String nameForDefaultImage = null;
         if (TextUtils.isEmpty(name)) {
-            nameForDefaultImage = mPhoneNumberHelper.getDisplayNumber(details.number,
-                    details.numberPresentation, details.formattedNumber).toString();
+            nameForDefaultImage = mPhoneNumberHelper.getDisplayNumber(details.accountId,
+                    details.number, details.numberPresentation,
+                    details.formattedNumber).toString();
         } else {
             nameForDefaultImage = name;
         }
 
-        if (photoId == 0 && photoUri != null) {
-            setPhoto(views, photoUri, lookupUri, nameForDefaultImage, lookupKey, contactType);
+        if (!TextUtils.isEmpty(accountName) && !TextUtils.isEmpty(accountType)) {
+            contactAccount = new Account(accountName, accountType);
         } else {
-            setPhoto(views, photoId, lookupUri, nameForDefaultImage, lookupKey, contactType);
+            contactAccount = null;
+        }
+        if (photoId == 0 && photoUri != null) {
+            setPhoto(views, photoUri, lookupUri, nameForDefaultImage, lookupKey, contactType,
+                    contactAccount);
+        } else {
+            setPhoto(views, photoId, lookupUri, nameForDefaultImage, lookupKey, contactType,
+                    contactAccount);
         }
 
         // Listen for the first draw
@@ -1205,22 +1224,22 @@ public class CallLogAdapter extends GroupingListAdapter
     }
 
     private void setPhoto(CallLogListItemViews views, long photoId, Uri contactUri,
-            String displayName, String identifier, int contactType) {
+            String displayName, String identifier, int contactType, Account account) {
         views.quickContactView.assignContactUri(contactUri);
         views.quickContactView.setOverlay(null);
         DefaultImageRequest request = new DefaultImageRequest(displayName, identifier,
                 contactType, true /* isCircular */);
-        mContactPhotoManager.loadThumbnail(views.quickContactView, photoId, false /* darkTheme */,
-                true /* isCircular */, request);
+        mContactPhotoManager.loadThumbnail(views.quickContactView, photoId, account,
+                false /* darkTheme */, true /* isCircular */, request);
     }
 
     private void setPhoto(CallLogListItemViews views, Uri photoUri, Uri contactUri,
-            String displayName, String identifier, int contactType) {
+            String displayName, String identifier, int contactType, Account account) {
         views.quickContactView.assignContactUri(contactUri);
         views.quickContactView.setOverlay(null);
         DefaultImageRequest request = new DefaultImageRequest(displayName, identifier,
                 contactType, true /* isCircular */);
-        mContactPhotoManager.loadDirectoryPhoto(views.quickContactView, photoUri,
+        mContactPhotoManager.loadDirectoryPhoto(views.quickContactView, photoUri, account,
                 false /* darkTheme */, true /* isCircular */, request);
     }
 
